@@ -81,7 +81,7 @@ timeout = -1
 panic_screen = true
 tools = true
 dram_size = 0xc0000000
-kernel_args = ["-v", "serial=3", "debug=0x14e"]
+kernel_args = ["-v", "serial=3", "debug=0x14e", "pmgr=2"]
 
 [payload.adt]
 chip_id = "6125"
