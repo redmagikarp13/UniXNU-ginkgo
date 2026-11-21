@@ -9,7 +9,7 @@ description = "Xiaomi Redmi Note 8 (ginkgo, SM6125, Tianma NT36672A, 4GB/64GB eM
 kit = "ginkgo"
 
 [components]
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "VerifiedRoot", "XnuPrelink", "DarwinBoot"]
 
 [kernel]
 defconfig = "ginkgo_defconfig"
@@ -87,6 +87,7 @@ kernel_args = ["-v", "serial=3", "debug=0x14e", "pmgr=2"]
 chip_id = "6125"
 unique_chip_id = "required"
 owned_memory_size = 0x80000000
+root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 
 [package.defconfig]
 "ipados-17.7.11-21H461" = "ginkgo_defconfig"
