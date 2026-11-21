@@ -1,0 +1,4 @@
+[[source]]
+name = "edk2"
+kind = "refer"
+local = "../uefi-ginkgo/Mu_Basecore"

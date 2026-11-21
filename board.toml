@@ -1,0 +1,87 @@
+schema_version = 2
+
+[board]
+name = "ginkgo"
+soc = "SM6125"
+soc_source = "sm6125"
+os_profile = "ipados-17.7.11-21H461"
+description = "Xiaomi Redmi Note 8 (ginkgo, SM6125, Tianma NT36672A, 4GB/64GB eMMC)"
+kit = "ginkgo"
+
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
+
+[kernel]
+defconfig = "ginkgo_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sm6125.config", "os:configs/ipados.config"]
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
+
+[device_tree]
+source = "device:dts/ginkgo.dts"
+include_dirs = ["soc:dts"]
+
+[userdata]
+first_lba = 0x1298000
+last_lba = 0x747bfde
+lba_bytes = 512
+
+[firmware]
+config = "ginkgo"
+dsc = "Platforms/Xiaomi/ginkgoPkg/ginkgo.dsc"
+fd = "Build/ginkgoPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+submodules = []
+patches = [
+  "Resources/MuPatches/Auth-Service.patch",
+  "Resources/MuPatches/Boot-Manager.patch",
+  "Resources/MuPatches/Timer.patch",
+  "Resources/MuPatches/Usb-Bus.patch",
+]
+packages = [
+  "{uefi}",
+  "{uefi}/Platforms/Xiaomi",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+]
+
+[firmware.defines]
+ENABLE_SECUREBOOT = "0"
+DEVICE_MODEL = "0"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE = "FALSE"
+BUILDID_STRING = "ginkgo-unixnu"
+
+# ABL do Redmi Note 8 (ginkgo, MIUI 12.5 Android 11) exige header_version = 2 com DTB separado.
+# O empacotamento determinístico em boot v2 é feito por scripts/pack-boot-v2.py.
+[bootimg.image]
+header_version = 2
+base = 0x00000000
+kernel_offset = 0x00008000
+ramdisk_offset = 0x01000000
+tags_offset = 0x00000100
+dtb_offset = 0x01f00000
+pagesize = 4096
+os_version = "11.0.0"
+os_patch_level = "2022-02"
+
+[payload]
+volume = "GINKGO"
+size_mib = 192
+loader = "firmware"
+title = "UniXNU - Redmi Note 8 (ginkgo)"
+dram_size = 0xc0000000
+kernel_args = ["-v", "serial=3", "debug=0x14e"]
+
+[payload.adt]
+chip_id = "6125"
+unique_chip_id = "required"
+
+[package.defconfig]
+"ipados-17.7.11-21H461" = "ginkgo_defconfig"
