@@ -1,1 +1,13 @@
-/* ginkgo DTS (Marco 2+) */
+/dts-v1/;
+/include/ "sm6125.dtsi"
+
+/ {
+	model = "Xiaomi Redmi Note 8 (ginkgo)";
+	compatible = "xiaomi,ginkgo", "qcom,sm6125";
+
+	memory@80000000 {
+		device_type = "memory";
+		/* Banco contiguo principal de 3 GiB (0x80000000..0x13fffffff em /proc/iomem). */
+		reg = <0x0 0x80000000 0x0 0xc0000000>;
+	};
+};
