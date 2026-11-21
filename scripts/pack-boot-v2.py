@@ -18,11 +18,17 @@ HEADER_V2_SIZE = 1660
 PAGE_SIZE = 4096
 BASE_ADDR = 0x00000000
 KERNEL_OFFSET = 0x00008000
-RAMDISK_OFFSET = 0x01000000
+DEFAULT_RAMDISK_OFFSET = 0x01000000
 TAGS_OFFSET = 0x00000100
 DTB_OFFSET = 0x01F00000
+ABL_BOOT_REGION_LIMIT = 0x05700000
 OS_VERSION = '11.0.0'
 OS_PATCH_LEVEL = '2022-02'
+
+UNXNFAT_MAGIC = b'UNXNFAT1'
+UNXNFAT_CHUNK = 1024 * 1024
+UNXNFAT_HEADER = struct.Struct('<8sQII')
+UNXNFAT_ENTRY = struct.Struct('<II')
 
 
 def align_pages(size, page_size=PAGE_SIZE):
@@ -48,6 +54,51 @@ def find_tool(name, clang_bin=None, uefi=None):
     if resolved:
         return resolved
     raise SystemExit(f'Ferramenta não encontrada: {name} (tente --clang-bin ou CLANG_BIN)')
+
+
+def find_tiano_compress(uefi):
+    """Localiza TianoCompress do BaseTools do EDK II."""
+    resolved = shutil.which('TianoCompress')
+    candidates = [Path(resolved)] if resolved else []
+    uefi_root = uefi.resolve()
+    candidates += [
+        uefi_root / 'Mu_Basecore/BaseTools/Source/C/bin/TianoCompress',
+        uefi_root / 'BaseTools/Source/C/bin/TianoCompress',
+        uefi_root / 'Common/Mu/BaseTools/Source/C/bin/TianoCompress',
+        uefi_root.parent / 'UniXNU/Mu_Basecore/BaseTools/Source/C/bin/TianoCompress',
+    ]
+    for path in candidates:
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    raise SystemExit('TianoCompress não encontrado; compile Mu_Basecore BaseTools para usar --ramdisk-compression uefi-chunks')
+
+
+def encode_uefi_chunks(source_path, scratch, uefi):
+    """Empacota imagem FAT em formato UNXNFAT1 com blocos Tiano de 1 MiB para UniXNURamDiskDxe."""
+    size = source_path.stat().st_size
+    if size == 0 or size % 512 != 0 or size > 1024**3:
+        raise SystemExit(f'Ramdisk para uefi-chunks precisa ser múltiplo de 512 bytes (até 1 GiB): {size}')
+    compressor = find_tiano_compress(uefi)
+    count = (size + UNXNFAT_CHUNK - 1) // UNXNFAT_CHUNK
+    chunk_in = scratch / 'fat-chunk.bin'
+    chunk_out = scratch / 'fat-chunk.compressed'
+    encoded = scratch / 'ramdisk.unxnfat1'
+    entries = []
+    with source_path.open('rb') as incoming, encoded.open('wb') as out_stream:
+        out_stream.write(UNXNFAT_HEADER.pack(UNXNFAT_MAGIC, size, UNXNFAT_CHUNK, count))
+        out_stream.write(bytes(UNXNFAT_ENTRY.size * count))
+        while data := incoming.read(UNXNFAT_CHUNK):
+            chunk_in.write_bytes(data)
+            subprocess.run([compressor, '-e', '--uefi', '-q', '-o', str(chunk_out), str(chunk_in)],
+                           check=True, capture_output=True)
+            compressed = chunk_out.read_bytes()
+            entries.append((out_stream.tell(), len(compressed)))
+            out_stream.write(compressed)
+            out_stream.write(bytes(-out_stream.tell() % 8))
+        out_stream.seek(UNXNFAT_HEADER.size)
+        for entry in entries:
+            out_stream.write(UNXNFAT_ENTRY.pack(*entry))
+    return encoded.read_bytes()
 
 
 def validate_dtb(blob, source):
@@ -116,19 +167,38 @@ def compile_shim(uefi, base, size, requires_header, scratch, clang_bin=None):
     return shim
 
 
-def verify_v2_image(path, combined, dtb_bytes, ramdisk_bytes):
+def validate_ramdisk_layout(ramdisk_offset, ramdisk_size, dtb_size):
+    """Garante que o ramdisk não colida com o DTB nem invada a região HYP do ABL."""
+    if not ramdisk_size:
+        return
+    if ramdisk_offset < 0 or ramdisk_offset % PAGE_SIZE != 0:
+        raise SystemExit(f'--ramdisk-offset inválido (precisa ser alinhado a 4 KiB e >= 0): {ramdisk_offset:#x}')
+    ramdisk_end = ramdisk_offset + ramdisk_size
+    dtb_end = DTB_OFFSET + dtb_size
+    if ramdisk_offset < dtb_end and ramdisk_end > DTB_OFFSET:
+        raise SystemExit(
+            f'Ramdisk [{ramdisk_offset:#x}..{ramdisk_end:#x}) colide com a região DTB [{DTB_OFFSET:#x}..{dtb_end:#x}); '
+            'use --ramdisk-offset 0x02200000 ou reduza o ramdisk'
+        )
+    if ramdisk_end > ABL_BOOT_REGION_LIMIT:
+        raise SystemExit(
+            f'Ramdisk [{ramdisk_offset:#x}..{ramdisk_end:#x}) invade a região HYP em {ABL_BOOT_REGION_LIMIT:#x}'
+        )
+
+
+def verify_v2_image(path, combined, dtb_bytes, ramdisk_bytes, ramdisk_offset):
     """Valida todos os campos do cabeçalho v2 e faz round-trip do payload inteiro."""
     data = path.read_bytes()
     if len(data) < PAGE_SIZE:
         raise SystemExit('Imagem gerada menor que 1 página')
     hdr = struct.unpack_from(HEADER_FMT, data, 0)
     magic, k_sz, k_addr, r_sz, r_addr, s_sz, _, tags, page, ver, osver, _, _, _, _, rec_sz, _, hdr_sz, dtb_sz, dtb_addr = hdr
-    expected_r_addr = (BASE_ADDR + RAMDISK_OFFSET) if ramdisk_bytes else 0
+    expected_r_addr = (BASE_ADDR + ramdisk_offset) if ramdisk_bytes else 0
     if (magic != b'ANDROID!' or ver != 2 or hdr_sz != HEADER_V2_SIZE or page != PAGE_SIZE or
             k_addr != BASE_ADDR + KERNEL_OFFSET or r_addr != expected_r_addr or
             tags != BASE_ADDR + TAGS_OFFSET or dtb_addr != BASE_ADDR + DTB_OFFSET or
             s_sz != 0 or rec_sz != 0):
-        raise SystemExit(f'Cabeçalho v2 inesperado em {path}: ver={ver} hdr={hdr_sz} page={page} os={hex(osver)}')
+        raise SystemExit(f'Cabeçalho v2 inesperado em {path}: ver={ver} hdr={hdr_sz} page={page} r_addr={r_addr:#x}')
     k_off = page
     r_off = k_off + align_pages(k_sz, page) * page
     dtb_off = r_off + align_pages(r_sz, page) * page
@@ -148,6 +218,10 @@ def sha256_bytes(blob):
     return hashlib.sha256(blob).hexdigest()
 
 
+def parse_offset(value):
+    return int(value, 0)
+
+
 def main():
     repo_root = Path(__file__).resolve().parent.parent
     default_uefi = repo_root.parent / 'uefi-ginkgo'
@@ -161,6 +235,10 @@ def main():
     dtb_group.add_argument('--dtb', type=Path, help='Arquivo DTB v2 para --dtb de mkbootimg.py')
     dtb_group.add_argument('--stock-boot', type=Path, help='Imagem stock v2 para extrair a seção DTB em somente-leitura')
     parser.add_argument('--ramdisk', type=Path, help='Ramdisk FAT (omita ou use vazio se não houver)')
+    parser.add_argument('--ramdisk-compression', choices=('none', 'uefi-chunks'), default='none',
+                        help='Codificação do ramdisk (default: none)')
+    parser.add_argument('--ramdisk-offset', type=parse_offset, default=DEFAULT_RAMDISK_OFFSET,
+                        help='Offset físico do ramdisk acima de base 0x40000000 (default: 0x01000000)')
     parser.add_argument('--clang-bin', type=Path, help='Diretório com clang/llvm-objcopy/llvm-nm')
     parser.add_argument('-o', '--output', required=True, type=Path, help='Caminho de saída do boot-v2.img')
     args = parser.parse_args()
@@ -181,13 +259,25 @@ def main():
     dtb_bytes = extract_v2_dtb(args.stock_boot) if args.stock_boot else validate_dtb(args.dtb.read_bytes(), args.dtb)
     if args.ramdisk and not args.ramdisk.is_file():
         raise SystemExit(f'Ramdisk não encontrado: {args.ramdisk}')
-    ramdisk_bytes = args.ramdisk.read_bytes() if args.ramdisk else b''
+    decoded_bytes = args.ramdisk.stat().st_size if args.ramdisk else 0
 
     out = args.output.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix='ginkgo-bootv2-', dir=out.parent) as scratch_dir:
         scratch = Path(scratch_dir)
+        if not args.ramdisk or decoded_bytes == 0:
+            ramdisk_bytes = b''
+            encoding = 'none'
+        elif args.ramdisk_compression == 'uefi-chunks':
+            ramdisk_bytes = encode_uefi_chunks(args.ramdisk, scratch, uefi)
+            encoding = 'uefi-chunks'
+        else:
+            ramdisk_bytes = args.ramdisk.read_bytes()
+            encoding = 'none'
+
+        validate_ramdisk_layout(args.ramdisk_offset, len(ramdisk_bytes), len(dtb_bytes))
+
         shim = compile_shim(uefi, base, fd_size, requires_header, scratch, args.clang_bin)
         combined = shim + fd_bytes
         kernel_gz = scratch / 'Image.gz'
@@ -203,7 +293,7 @@ def main():
             '--header_version', '2',
             '--base', f'{BASE_ADDR:#010x}',
             '--kernel_offset', f'{KERNEL_OFFSET:#010x}',
-            '--ramdisk_offset', f'{RAMDISK_OFFSET:#010x}',
+            '--ramdisk_offset', f'{args.ramdisk_offset:#010x}',
             '--tags_offset', f'{TAGS_OFFSET:#010x}',
             '--dtb_offset', f'{DTB_OFFSET:#010x}',
             '--pagesize', str(PAGE_SIZE),
@@ -215,7 +305,7 @@ def main():
             '-o', str(candidate),
         ]
         subprocess.run(cmd, check=True)
-        report = verify_v2_image(candidate, combined, dtb_bytes, ramdisk_bytes)
+        report = verify_v2_image(candidate, combined, dtb_bytes, ramdisk_bytes, args.ramdisk_offset)
         report.update(
             image=str(out),
             image_bytes=candidate.stat().st_size,
@@ -225,6 +315,9 @@ def main():
             shim_sha256=sha256_bytes(shim),
             dtb_sha256=sha256_bytes(dtb_bytes),
             ramdisk_sha256=sha256_bytes(ramdisk_bytes),
+            ramdisk_offset=f'{args.ramdisk_offset:#010x}',
+            ramdisk_encoding=encoding,
+            ramdisk_decoded_bytes=decoded_bytes,
         )
         os.replace(candidate, out)
 
