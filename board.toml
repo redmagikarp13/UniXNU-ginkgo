@@ -92,6 +92,7 @@ kernel_args = [
   "sm6125-emmc-block=3",
   "sm6125-data-persist=1",
   "sm6125-skip-setup=1",
+  "sm6125-touch=5",
   "no-lc=1",
   "kt_fixed_zones=120",
   "-no_slto_panic",
