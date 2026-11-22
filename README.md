@@ -29,6 +29,7 @@ Port experimental do **UniXNU** (`ipados-17.7.11-21H461`, `arm64`, páginas de *
 | **Marco 3B** | `IOBlockStorageDevice` (`Sm6125EmmcBlock`) + `VerifiedRoot` RSA-3072 + `SHNGROOT` v2 (`OS` + `SystemOS` union mount em `/`) | ✅ Validado |
 | **Marco 4A** | `NativeRamBlock` (seed APFS `Data` de 4 GiB) + `SHNGDATA` persistente em eMMC (`CMD24`/`CMD25` + trava LBA) — `/private/var` RW sobrevivendo a reboot | ✅ Validado |
 | **Marco 4B** | Bringup do userspace `/sbin/launchd` com `ipsw-trust.bundle` (`2.554` hashes) e política `disabled.plist` (86 processos simultâneos em 180s) | ✅ Validado |
+| **Marco 5** | Display GOP (`NativeLegacyDisplay` 1080×2340, `IOMobileFramebufferLegacy` ABI 21H461), SMP 8/8 núcleos (`PSCI` + GICv3), `AppleKeyStoreState`, 2,81 GiB RAM (`0xb4000000`), skip-setup/8-bit FB no `/private/var` — Lock Screen do `SpringBoard` renderizada em silício real | ✅ Validado |
 
 ### Detalhes da Verificação de Persistência (Marco 4A)
 - A imagem `userdata-root.img` (`SHNGROOT` v2, `9,457,106,944` B) ocupa o início de `userdata` (`disk0s87`, LBAs `0x01298000..0x0747BFDE`).

@@ -9,7 +9,7 @@ description = "Xiaomi Redmi Note 8 (ginkgo, SM6125, Tianma NT36672A, 4GB/64GB eM
 kit = "ginkgo"
 
 [components]
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "VerifiedRoot", "XnuPrelink", "DarwinBoot"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "VerifiedRoot", "GopFramebuffer", "AppleKeyStoreState", "XnuPrelink", "DarwinBoot"]
 
 [kernel]
 defconfig = "ginkgo_defconfig"
@@ -81,14 +81,73 @@ timeout = -1
 panic_screen = true
 tools = true
 dram_size = 0xc0000000
-kernel_args = ["-v", "serial=3", "debug=0x14e", "pmgr=2"]
+skip_setup_tool = "scripts/seed-data-skip-setup.py"
+skip_setup_args = ["--no-auto-dim"]
+kernel_args = [
+  "smp=1",
+  "armcpu-self-ipi=1",
+  "aks=1",
+  "aks-sls=3",
+  "offline-key-events=1",
+  "sm6125-emmc-block=3",
+  "sm6125-data-persist=1",
+  "sm6125-skip-setup=1",
+  "no-lc=1",
+  "kt_fixed_zones=120",
+  "-no_slto_panic",
+  "ml-timeout-lock-panic-scale=40",
+  "offline-mobile-graphics-load=1",
+  "offline-mobile-graphics-client=1",
+  "offline-legacy-register=1",
+  "offline-legacy-phase=4",
+  "offline-legacy-gop=1",
+  "offline-legacy-unit-scale=2",
+  "offline-legacy-pm=1",
+  "offline-legacy-validate=1",
+  "offline-legacy-transfer=1",
+  "offline-legacy-cpu-present=1",
+  "offline-legacy-retire=1",
+  "vsync=60",
+  "sched_preemption_disable_debug_mode=0",
+  "interrupt-masked-debug-mode=0",
+  "validation_disables=0x11040",
+  "-v",
+  "serial=3",
+  "debug=0x14e",
+  "pmgr=2",
+]
 
 [payload.adt]
 chip_id = "6125"
 unique_chip_id = "required"
-owned_memory_size = 0x80000000
+owned_memory_size = 0xb4000000
 packed_data_ramdisk = true
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 
 [package.defconfig]
 "ipados-17.7.11-21H461" = "ginkgo_defconfig"
+
+[adt.product.string]
+model = "J120AP"
+artwork-display-gamut = "sRGB"
+
+[adt.product.u32]
+thin-bezel = 1
+
+[adt.defaults.u32]
+sleep-disabled = 1
+vmm-present = 1
+"kern.maxvnodes" = 47104
+
+[adt.chosen.u32]
+kernel-ctrr-to-be-enabled = 0
+
+[adt.buttons.string]
+compatible = "buttons"
+device_type = "buttons"
+
+[adt.buttons.strings]
+button-names = ["hold", "voldown", "volup"]
+
+[adt.buttons.u32]
+home-button-type = 2
